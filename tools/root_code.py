@@ -1,7 +1,9 @@
+import sqlite3
 import os
 import re
 
-USER_FILE_PATH = os.path.join(os.path.dirname(__file__), 'usermessage.txt')
+# 数据库文件路径
+DATABASE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'user_database.db')
 
 def validate_email(email):
     """验证电子邮件格式"""
@@ -29,9 +31,12 @@ def user_add(root_password, user_con):
             return
         
         try:
-            with open(USER_FILE_PATH, 'a') as file:
-                file.write(f" {add_user_name} {add_user_password} {add_user_email} {add_user_type}\n")
-            print(f"User {add_user_name} added successfully!")
+            with sqlite3.connect(DATABASE_PATH) as conn:
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO users (username, password, email, user_type) VALUES (?, ?, ?, ?)",
+                               (add_user_name, add_user_password, add_user_email, add_user_type))
+                conn.commit()
+                print(f"User {add_user_name} added successfully!")
         except Exception as e:
             print(f"An error occurred while adding the user: {e}")
     else:
@@ -45,26 +50,14 @@ def user_delete(root_password):
         delete_user_name = input("Enter the name of the user to delete: ")
 
         try:
-            with open(USER_FILE_PATH, 'r') as file:
-                lines = file.readlines()
-            
-            new_lines = []
-            user_found = False
-
-            for line in lines:
-                user_info = line.strip().split()
-                
-                if user_info[0] != delete_user_name:
-                    new_lines.append(line)
+            with sqlite3.connect(DATABASE_PATH) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM users WHERE username = ?", (delete_user_name,))
+                if cursor.rowcount > 0:
+                    conn.commit()
+                    print(f"User {delete_user_name} deleted successfully.")
                 else:
-                    user_found = True
-
-            if user_found:
-                with open(USER_FILE_PATH, 'w') as file:
-                    file.writelines(new_lines)
-                print(f"User {delete_user_name} deleted successfully.")
-            else:
-                print(f"User {delete_user_name} not found.")
+                    print(f"User {delete_user_name} not found.")
         except Exception as e:
             print(f"An error occurred while deleting the user: {e}")
     else:
@@ -78,41 +71,30 @@ def user_info_update(root_password):
         update_user_name = input("Enter the name of the user to update: ")
 
         try:
-            with open(USER_FILE_PATH, 'r') as file:
-                lines = file.readlines()
+            with sqlite3.connect(DATABASE_PATH) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE username = ?", (update_user_name,))
+                user_info = cursor.fetchone()
 
-            new_lines = []
-            user_found = False
-
-            for line in lines:
-                user_info = line.strip().split()
-                
-                if user_info[0] == update_user_name:
-                    user_found = True
+                if user_info:
                     print(f"Current info of {update_user_name}:")
-                    print(f"Username: {user_info[0]}, Password: {user_info[1]}, Email: {user_info[2]}, Type: {user_info[3]}")
-                    
-                    new_username = input(f"Enter new username (current: {user_info[0]}): ")
-                    new_password = input(f"Enter new password (current: {user_info[1]}): ")
-                    new_email = input(f"Enter new email (current: {user_info[2]}): ")
-                    new_user_type = input(f"Enter new user type (current: {user_info[3]}): ")
+                    print(f"Username: {user_info[1]}, Password: {user_info[2]}, Email: {user_info[3]}, Type: {user_info[4]}")
+
+                    new_username = input(f"Enter new username (current: {user_info[1]}): ")
+                    new_password = input(f"Enter new password (current: {user_info[2]}): ")
+                    new_email = input(f"Enter new email (current: {user_info[3]}): ")
+                    new_user_type = input(f"Enter new user type (current: {user_info[4]}): ")
 
                     # 更新用户信息
-                    user_info[0] = new_username
-                    user_info[1] = new_password
-                    user_info[2] = new_email
-                    user_info[3] = new_user_type
-
-                    new_lines.append(" ".join(user_info) + "\n")
+                    cursor.execute("""
+                        UPDATE users
+                        SET username = ?, password = ?, email = ?, user_type = ?
+                        WHERE username = ?
+                    """, (new_username, new_password, new_email, new_user_type, update_user_name))
+                    conn.commit()
+                    print(f"User {update_user_name} info updated successfully.")
                 else:
-                    new_lines.append(line)
-
-            if user_found:
-                with open(USER_FILE_PATH, 'w') as file:
-                    file.writelines(new_lines)
-                print(f"User {update_user_name} info updated successfully.")
-            else:
-                print(f"User {update_user_name} not found.")
+                    print(f"User {update_user_name} not found.")
         except Exception as e:
             print(f"An error occurred while updating the user info: {e}")
     else:
@@ -124,15 +106,20 @@ def users_printer(user_con, root_password):
     
     if password_in == root_password and user_con == 2:
         try:
-            with open(USER_FILE_PATH, 'r') as file:
-                lines = file.readlines()
-                for line in lines:
-                    print(f"=========== User Information =========\n{line.strip()}")
+            with sqlite3.connect(DATABASE_PATH) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users")
+                users = cursor.fetchall()
+
+                for user in users:
+                    print(f"=========== User Information =========")
+                    print(f"ID: {user[0]}, Username: {user[1]}, Email: {user[3]}, Type: {user[4]}")
         except Exception as e:
             print(f"An error occurred while reading the user data: {e}")
     else:
         print("Incorrect root password or insufficient permissions.")
 
+# help_txt 保持不变
 help_txt = """
 Root User Management Functions Help Document:
 
@@ -145,7 +132,7 @@ Root User Management Functions Help Document:
      1. The function asks for the root password.
      2. If the password is correct and the user has root privileges (user_con == 2), it proceeds to add a new user.
      3. The function prompts the root user to input the new user's name, password, email, and type (either 'user' or 'root').
-     4. If the type is valid, the user is added to the `usermessage.txt` file.
+     4. If the type is valid, the user is added to the database.
      5. If successful, a confirmation message is displayed.
 
 2. user_delete(root_password):
@@ -155,7 +142,7 @@ Root User Management Functions Help Document:
    - Steps:
      1. The function asks for the root password.
      2. If the password is correct, it prompts for the name of the user to delete.
-     3. The function searches through `usermessage.txt` and removes the specified user if found.
+     3. The function searches through the database and removes the specified user if found.
      4. If the user exists and is successfully deleted, a confirmation message is shown.
      5. If the user does not exist, an error message is displayed.
 
@@ -166,9 +153,9 @@ Root User Management Functions Help Document:
    - Steps:
      1. The function asks for the root password.
      2. If the password is correct, it prompts for the name of the user whose information needs to be updated.
-     3. The function searches through `usermessage.txt` and displays the current information of the user.
+     3. The function searches through the database and displays the current information of the user.
      4. The root user can then modify the username, password, email, and user type.
-     5. If the update is successful, the information is saved in the `usermessage.txt` file.
+     5. If the update is successful, the information is saved in the database.
 
 4. users_printer(user_con, root_password):
    - This function allows a root user to print out all users' information.
@@ -177,7 +164,6 @@ Root User Management Functions Help Document:
      - root_password: The root password used to verify the root user's access.
    - Steps:
      1. The function asks for the root password.
-     2. If the password is correct and the user has root privileges (user_con == 2), it reads and prints all users' information from the `usermessage.txt` file.
+     2. If the password is correct and the user has root privileges (user_con == 2), it reads and prints all users' information from the database.
      3. It displays the user information in a clear format.
-
 """
